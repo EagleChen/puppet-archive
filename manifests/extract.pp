@@ -21,7 +21,7 @@ Example usage:
 
 This means we want to extract the local archive
 (maybe downloaded with archive::download)
-'/usr/src/apache-tomcat-6.0.26.tar.gz' in '/src/apache-tomcat-6.0.26'
+'/usr/src/apache-tomcat-6.0.26.tar.gz' in '/opt/apache-tomcat-6.0.26'
 
 Warning:
 
@@ -53,7 +53,7 @@ define archive::extract (
       $extract_tarbz2 = "tar --no-same-owner --no-same-permissions -xjf ${src_target}/${name}.${extension} -C ${target}"
 
       exec {"$name unpack":
-        command => $extension ? {
+        command     => $extension ? {
           'zip'     => "mkdir -p ${target} && ${extract_zip}",
           'tar.gz'  => "mkdir -p ${target} && ${extract_targz}",
           'tgz'     => "mkdir -p ${target} && ${extract_targz}",
@@ -61,8 +61,10 @@ define archive::extract (
           'tgz2'    => "mkdir -p ${target} && ${extract_tarbz2}",
           default   => fail ( "Unknown extension value '${extension}'" ),
         },
-        creates => $extract_dir,
-        timeout => $timeout
+        creates     => $extract_dir,
+        path        => "/bin:/usr/bin",
+        timeout     => $timeout,
+        refreshonly => true,
       }
     }
     absent: {

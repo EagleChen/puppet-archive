@@ -43,6 +43,11 @@ define archive (
   $follow_redirects=false,
 ) {
 
+  exec { "${name}_src_dir:${src_target}":
+    command => "/bin/mkdir -p ${src_target}",
+    creates => $src_target,
+  }
+
   archive::download {"${name}.${extension}":
     ensure           => $ensure,
     url              => $url,
@@ -54,6 +59,8 @@ define archive (
     src_target       => $src_target,
     allow_insecure   => $allow_insecure,
     follow_redirects => $follow_redirects,
+    require          => Exec["${name}_src_dir:${src_target}"],
+    notify           => Exec["$name unpack"],
   }
 
   archive::extract {$name:
@@ -63,6 +70,6 @@ define archive (
     root_dir   => $root_dir,
     extension  => $extension,
     timeout    => $timeout,
-    require    => Archive::Download["${name}.${extension}"]
+    require    => Archive::Download["${name}.${extension}"],
   }
 }

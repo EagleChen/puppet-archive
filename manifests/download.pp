@@ -52,7 +52,7 @@ define archive::download (
     default => '',
   }
 
-  if !defined(Package['curl']) {
+  if ($url =~ /^http/) and !defined(Package['curl']) {
     package{'curl':
       ensure => present,
     }
@@ -67,11 +67,10 @@ define archive::download (
         default: { fail 'Unimplemented digest type' }
       }
 
-      if $digest_url != '' and $digest_string != '' {
-        fail 'digest_url and digest_string should not be used together !'
-      }
-
+      # digest_string is prior to digest_url
       if $digest_string == '' {
+
+        if $url =~ /^puppet/ { fail "No digest string" }
 
         case $ensure {
           present: {
@@ -82,11 +81,12 @@ define archive::download (
               $digest_src = $digest_url
             }
 
-            exec {"download digest of archive $name":
+            exec { "download digest of archive $name":
               command => "curl ${insecure_arg} ${redirect_arg} -o ${src_target}/${name}.${digest_type} ${digest_src}",
               creates => "${src_target}/${name}.${digest_type}",
+              path    => "/bin:/usr/bin",
               timeout => $timeout,
-              notify  => Exec["download archive $name and check sum"],
+              notify  => Exec["download archive $name by curl and check sum"],
               require => Package['curl'],
             }
 
@@ -104,10 +104,17 @@ define archive::download (
       if $digest_string != '' {
         case $ensure {
           present: {
-            file {"${src_target}/${name}.${digest_type}":
-              ensure  => $ensure,
-              content => "${digest_string} *${name}",
-              notify  => Exec["download archive $name and check sum"],
+            if $url =~ /^puppet/ {
+              file { "${src_target}/${name}.${digest_type}":
+                ensure  => $ensure,
+                content => "${digest_string} *${name}",
+              }
+            } else {
+              file { "${src_target}/${name}.${digest_type}":
+                ensure  => $ensure,
+                content => "${digest_string} *${name}",
+                notify  => Exec["download archive $name by curl and check sum"],
+              }
             }
           }
           absent: {
@@ -126,25 +133,47 @@ define archive::download (
 
   case $ensure {
     present: {
-      exec {"download archive $name and check sum":
-        command   => "curl ${insecure_arg} ${redirect_arg} -o ${src_target}/${name} ${url}",
-        creates   => "${src_target}/${name}",
-        logoutput => true,
-        timeout   => $timeout,
-        require   => Package['curl'],
-        notify    => $checksum ? {
-          true    => Exec["rm-on-error-${name}"],
-          default => undef,
-        },
-        refreshonly => $checksum ? {
-          true      => true,
-          default   => undef,
-        },
+      case $url {
+        /^puppet/: {
+          file { "download archive $name by puppet and check sum":
+            ensure    => present,
+            path      => "${src_target}/${name}",
+            source    => $url,
+            notify    => $checksum ? {
+              true    => Exec["rm-on-error-${name}"],
+              default => undef,
+            },
+            require   => $checksum ? {
+              true    => File["${src_target}/${name}.${digest_type}"],
+              default => undef,
+            },
+          }
+        }
+        /^http/: {
+          exec {"download archive $name by curl and check sum":
+            command   => "curl ${insecure_arg} ${redirect_arg} -o ${src_target}/${name} ${url}",
+            creates   => "${src_target}/${name}",
+            path      => "/bin:/usr/bin",
+            logoutput => true,
+            timeout   => $timeout,
+            require   => Package['curl'],
+            notify    => $checksum ? {
+              true    => Exec["rm-on-error-${name}"],
+              default => undef,
+            },
+            refreshonly => $checksum ? {
+              true      => true,
+              default   => undef,
+            },
+          }
+        }
+        default: { fail "Download error. Protocol not supported" }
       }
 
       exec {"rm-on-error-${name}":
         command     => "rm -f ${src_target}/${name} ${src_target}/${name}.${digest_type} && exit 1",
         unless      => $checksum_cmd,
+        path        => "/bin:/usr/bin",
         cwd         => $src_target,
         refreshonly => true,
       }
